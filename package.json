@@ -1,0 +1,36 @@
+{
+  "name": "@keevor/mysql-mcp-server",
+  "version": "1.0.0",
+  "description": "MySQL MCP Server for Cursor - Execute SQL queries via Model Context Protocol",
+  "main": "mysql-mcp-server.js",
+  "bin": {
+    "mysql-mcp-server": "mysql-mcp-server.js"
+  },
+  "scripts": {
+    "start": "node mysql-mcp-server.js"
+  },
+  "keywords": [
+    "mcp",
+    "mysql",
+    "cursor",
+    "database",
+    "sql",
+    "model-context-protocol"
+  ],
+  "author": "KeeVor<keevors@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keevors/mysql-mcp-server.git"
+  },
+  "homepage": "https://github.com/keevors/mysql-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/keevors/mysql-mcp-server/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "mysql2": "^3.6.5"
+  }
+}
