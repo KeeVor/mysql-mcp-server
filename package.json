@@ -21,11 +21,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keevors/mysql-mcp-server.git"
+    "url": "git+https://github.com/KeeVor/mysql-mcp-server.git"
   },
-  "homepage": "https://github.com/keevors/mysql-mcp-server#readme",
+  "homepage": "https://github.com/KeeVor/mysql-mcp-server#readme",
   "bugs": {
-    "url": "https://github.com/keevors/mysql-mcp-server/issues"
+    "url": "https://github.com/KeeVor/mysql-mcp-server/issues"
   },
   "engines": {
     "node": ">=14.0.0"
