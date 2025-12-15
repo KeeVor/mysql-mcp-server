@@ -8,6 +8,7 @@ MySQL MCP Server 是一个为 Cursor 编辑器设计的 Model Context Protocol (
 - 📋 列出所有数据表
 - 📊 查看表结构
 - 🔒 安全的环境变量配置
+- ⏱️ 可配置查询超时，防止SQL卡死
 - 🚀 开箱即用，通过 npx 快速启动
 
 ## 📦 安装
@@ -27,7 +28,8 @@ MySQL MCP Server 是一个为 Cursor 编辑器设计的 Model Context Protocol (
         "DB_PORT": "3306",
         "DB_USER": "root",
         "DB_PASSWORD": "your_password",
-        "DB_DATABASE": "your_database"
+        "DB_DATABASE": "your_database",
+        "DB_QUERY_TIMEOUT": "10"
       }
     }
   }
@@ -52,7 +54,8 @@ npm install -g @keevor/mysql-mcp-server
         "DB_PORT": "3306",
         "DB_USER": "root",
         "DB_PASSWORD": "your_password",
-        "DB_DATABASE": "your_database"
+        "DB_DATABASE": "your_database",
+        "DB_QUERY_TIMEOUT": "10"
       }
     }
   }
@@ -71,6 +74,7 @@ npm install -g @keevor/mysql-mcp-server
 | `DB_PASSWORD` | ❌ 否 | "" | 数据库密码 |
 | `DB_DATABASE` | ✅ 是 | - | 数据库名称 |
 | `DB_CHARSET` | ❌ 否 | utf8mb4 | 字符集 |
+| `DB_QUERY_TIMEOUT` | ❌ 否 | 10 | 查询超时时间（秒） |
 
 ## 🛠️ 可用工具
 

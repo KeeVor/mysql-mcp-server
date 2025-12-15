@@ -1,6 +1,6 @@
 {
   "name": "@keevor/mysql-mcp-server",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "description": "MySQL MCP Server for Cursor - Execute SQL queries via Model Context Protocol",
   "main": "mysql-mcp-server.js",
   "bin": {

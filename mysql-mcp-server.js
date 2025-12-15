@@ -11,6 +11,7 @@
  *   DB_PASSWORD - 数据库密码（可选）
  *   DB_DATABASE - 数据库名称（必需）
  *   DB_CHARSET - 字符集（可选，默认utf8mb4）
+ *   DB_QUERY_TIMEOUT - 查询超时时间（可选，单位：秒，默认10秒）
  * 
  * 在 mcp.json 中配置示例：
  * {
@@ -23,7 +24,8 @@
  *         "DB_PORT": "3306",
  *         "DB_USER": "root",
  *         "DB_PASSWORD": "root",
- *         "DB_DATABASE": "database_name"
+ *         "DB_DATABASE": "database_name",
+ *         "DB_QUERY_TIMEOUT": "30"
  *       }
  *     }
  *   }
@@ -33,7 +35,8 @@
 const mysql = require('mysql2/promise');
 const readline = require('readline');
 
-let connection = null;
+let pool = null; // 连接池
+let queryTimeout = 10000; // 默认10秒超时（毫秒）
 
 // 从环境变量读取数据库配置
 function loadDbConfig() {
@@ -45,36 +48,109 @@ function loadDbConfig() {
     database: process.env.DB_DATABASE,
     charset: process.env.DB_CHARSET || 'utf8mb4'
   };
-  
+
+  // 读取查询超时配置（秒转换为毫秒）
+  const timeoutSeconds = parseInt(process.env.DB_QUERY_TIMEOUT) || 10;
+  queryTimeout = timeoutSeconds * 1000;
+
   // 验证必需的配置项
   const requiredFields = [
     { key: 'host', env: 'DB_HOST' },
     { key: 'user', env: 'DB_USER' },
     { key: 'database', env: 'DB_DATABASE' }
   ];
-  
+
   for (const field of requiredFields) {
     if (!config[field.key]) {
-      console.error(`❌ 错误: 缺少必需的环境变量: ${field.env}`);
-      console.error('请在 mcp.json 的 env 配置中设置该变量');
+      // 配置错误时退出进程
       process.exit(1);
     }
   }
-  
-  console.error(`🔗 数据库连接信息: ${config.host}:${config.port}/${config.database}`);
-  console.error(`👤 用户: ${config.user}`);
-  
+
   return config;
 }
 
-// 初始化数据库连接
+// 带超时的查询执行函数
+async function executeWithTimeout(sql) {
+  const timeoutSeconds = Math.floor(queryTimeout / 1000);
+  let timeoutHandle = null;
+  let conn = null;
+  let connId = null;
+
+  try {
+    // 从连接池获取连接
+    conn = await pool.getConnection();
+
+    // 获取当前连接ID
+    const [idResult] = await conn.query('SELECT CONNECTION_ID() as id');
+    connId = idResult[0].id;
+
+    // 超时处理
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(async () => {
+        // 使用新连接来 KILL 当前查询
+        try {
+          const killConn = await pool.getConnection();
+          await killConn.query(`KILL QUERY ${connId}`);
+          killConn.release();
+        } catch (killError) {
+          // 忽略 KILL 错误
+        }
+
+        reject(new Error(`查询超时：查询执行超过 ${timeoutSeconds} 秒未响应，已自动终止。请重新尝试执行！`));
+      }, queryTimeout);
+    });
+
+    // 对于 SELECT 查询，添加 MAX_EXECUTION_TIME hint
+    let executeSql = sql.trim();
+    if (executeSql.toUpperCase().startsWith('SELECT')) {
+      // 在 SELECT 后添加超时提示（毫秒）
+      executeSql = executeSql.replace(/^SELECT/i, `SELECT /*+ MAX_EXECUTION_TIME(${queryTimeout}) */`);
+    }
+
+    const queryPromise = conn.execute(executeSql);
+    const result = await Promise.race([queryPromise, timeoutPromise]);
+
+    // 清除超时定时器
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+
+    return result;
+  } catch (error) {
+    // 清除超时定时器
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    throw error;
+  } finally {
+    // 释放连接回池
+    if (conn) {
+      conn.release();
+    }
+  }
+}
+
+// 初始化数据库连接池
 async function initConnection() {
   try {
     const dbConfig = loadDbConfig();
-    connection = await mysql.createConnection(dbConfig);
-    console.error('✅ MySQL 连接成功');
+
+    // 创建连接池
+    pool = mysql.createPool({
+      ...dbConfig,
+      waitForConnections: true,
+      connectionLimit: 5,  // 最大连接数
+      queueLimit: 0,       // 不限制队列
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
+    });
+
+    // 测试连接
+    const testConn = await pool.getConnection();
+    await testConn.query('SELECT CONNECTION_ID() as id, VERSION() as version');
+    testConn.release();
   } catch (error) {
-    console.error('❌ MySQL 连接失败:', error.message);
     process.exit(1);
   }
 }
@@ -96,10 +172,9 @@ async function handleRequest(request) {
   }
 
   const { id, method, params } = requestData;
-  
+
   // 处理通知消息（没有 id 的请求，不需要响应）
   if (id === undefined || id === null) {
-    console.error('[INFO] Received notification:', method);
     // 通知消息的处理
     switch (method) {
       case 'notifications/initialized':
@@ -112,7 +187,7 @@ async function handleRequest(request) {
         return null;
     }
   }
-  
+
   try {
     switch (method) {
       case 'initialize':
@@ -130,7 +205,7 @@ async function handleRequest(request) {
             }
           }
         };
-      
+
       case 'tools/list':
         return {
           jsonrpc: '2.0',
@@ -176,12 +251,12 @@ async function handleRequest(request) {
             ]
           }
         };
-      
+
       case 'tools/call':
         const { name, arguments: args } = params;
-        
+
         if (name === 'query') {
-          const [rows] = await connection.execute(args.sql);
+          const [rows] = await executeWithTimeout(args.sql);
           return {
             jsonrpc: '2.0',
             id: id,
@@ -195,9 +270,9 @@ async function handleRequest(request) {
             }
           };
         }
-        
+
         if (name === 'list_tables') {
-          const [tables] = await connection.execute('SHOW TABLES');
+          const [tables] = await executeWithTimeout('SHOW TABLES');
           // 提取表名列表
           const tableNames = tables.map(row => Object.values(row)[0]);
           return {
@@ -213,9 +288,9 @@ async function handleRequest(request) {
             }
           };
         }
-        
+
         if (name === 'describe_table') {
-          const [structure] = await connection.execute(`DESCRIBE ${args.table}`);
+          const [structure] = await executeWithTimeout(`DESCRIBE ${args.table}`);
           return {
             jsonrpc: '2.0',
             id: id,
@@ -229,9 +304,9 @@ async function handleRequest(request) {
             }
           };
         }
-        
+
         throw new Error(`未知的工具: ${name}`);
-      
+
       default:
         // 未知方法，如果有 id 就返回错误，否则忽略
         if (id !== undefined && id !== null) {
@@ -247,7 +322,7 @@ async function handleRequest(request) {
         return null;
     }
   } catch (error) {
-    // 如果有 id，返回错误响应；否则只记录错误
+    // 如果有 id，返回错误响应；否则忽略
     if (id !== undefined && id !== null) {
       return {
         jsonrpc: '2.0',
@@ -258,7 +333,6 @@ async function handleRequest(request) {
         }
       };
     }
-    console.error('[ERROR] Error processing notification:', error.message);
     return null;
   }
 }
@@ -266,40 +340,34 @@ async function handleRequest(request) {
 // 主函数
 async function main() {
   await initConnection();
-  
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     terminal: false
   });
-  
+
   rl.on('line', async (line) => {
-    // 记录接收到的请求（用于调试）
-    console.error('[DEBUG] Received:', line.substring(0, 200));
-    
     const response = await handleRequest(line);
-    
+
     // 如果响应为 null（通知消息），不输出响应
     if (response === null) {
       return;
     }
-    
-    // 记录发送的响应（用于调试）
-    console.error('[DEBUG] Sending:', JSON.stringify(response).substring(0, 200));
-    
+
+    // 只输出 JSON-RPC 响应，不输出任何其他内容
     console.log(JSON.stringify(response));
   });
-  
+
   rl.on('close', async () => {
-    if (connection) {
-      await connection.end();
+    if (pool) {
+      await pool.end();
     }
     process.exit(0);
   });
 }
 
 main().catch(error => {
-  console.error('服务器错误:', error);
   process.exit(1);
 });
 
