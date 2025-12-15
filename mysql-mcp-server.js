@@ -272,9 +272,10 @@ async function handleRequest(request) {
         }
 
         if (name === 'list_tables') {
-          const [tables] = await executeWithTimeout('SHOW TABLES');
-          // 提取表名列表
-          const tableNames = tables.map(row => Object.values(row)[0]);
+          // 使用 SHOW TABLE STATUS 获取表名和表备注
+          const [tables] = await executeWithTimeout('SHOW TABLE STATUS');
+          // 提取表名和备注
+          const tableInfo = tables.map(row => ({ name: row.Name, comment: row.Comment || '' }));
           return {
             jsonrpc: '2.0',
             id: id,
@@ -282,7 +283,7 @@ async function handleRequest(request) {
               content: [
                 {
                   type: 'text',
-                  text: JSON.stringify(tableNames, null, 2)
+                  text: JSON.stringify(tableInfo, null, 2)
                 }
               ]
             }
@@ -290,7 +291,8 @@ async function handleRequest(request) {
         }
 
         if (name === 'describe_table') {
-          const [structure] = await executeWithTimeout(`DESCRIBE ${args.table}`);
+          // 使用 SHOW FULL COLUMNS 获取完整的列信息，包含 Comment 字段
+          const [structure] = await executeWithTimeout(`SHOW FULL COLUMNS FROM ${args.table}`);
           return {
             jsonrpc: '2.0',
             id: id,
